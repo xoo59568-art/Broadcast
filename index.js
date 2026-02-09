@@ -2,50 +2,57 @@ require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
 
-/* ===== EXPRESS SERVER ===== */
-
 const app = express();
-
-app.get("/", (req, res) => {
-  res.send("Rabbit XMD Bot Running ✅");
-});
-
+app.get("/", (req, res) => res.send("Rabbit XMD Bot Running"));
 app.listen(3000);
 
 /* ===== BOT SETUP ===== */
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, {
-  polling: true
-});
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 const DB_GROUP = Number(process.env.DB_GROUP);
 
-/* ===== SAVE USER (GROUP DATABASE) ===== */
+/* ===== USER CACHE ===== */
+
+let users = new Set();
+
+/* ===== LOAD USERS FROM GROUP ===== */
+
+async function loadUsers() {
+
+  try {
+    const updates = await bot.getUpdates();
+
+    updates.forEach(u => {
+      if (u.message && u.message.chat.id === DB_GROUP) {
+
+        const match = u.message.text?.match(/ID:\s*(\d+)/);
+        if (match) users.add(Number(match[1]));
+
+      }
+    });
+
+    console.log("Loaded Users:", users.size);
+
+  } catch (err) {
+    console.log("Load Error:", err.message);
+  }
+}
+
+loadUsers();
+
+/* ===== SAVE USER ===== */
 
 async function saveUser(user) {
+
+  if (users.has(user.id)) return;
+
+  users.add(user.id);
+
   try {
     await bot.sendMessage(DB_GROUP, `ID: ${user.id}`);
   } catch {}
-}
-
-/* ===== GET USERS FROM GROUP ===== */
-
-async function getUsers() {
-
-  const updates = await bot.getUpdates();
-  let users = [];
-
-  updates.forEach(u => {
-    if (u.message && u.message.chat.id === DB_GROUP) {
-
-      const match = u.message.text?.match(/ID:\s*(\d+)/);
-      if (match) users.push(Number(match[1]));
-
-    }
-  });
-
-  return [...new Set(users)];
 }
 
 /* ===== START MESSAGE ===== */
@@ -54,11 +61,9 @@ bot.onText(/\/start/, async (msg) => {
 
   await saveUser(msg.from);
 
-  bot.sendMessage(msg.chat.id, `
-🐰 Welcome to Rabbit XMD Support Bot
-
-Send any message to contact admin.
-`);
+  bot.sendMessage(msg.chat.id,
+    "🐰 Welcome to Rabbit XMD Support Bot\nSend message to contact admin."
+  );
 });
 
 /* ===== USER MESSAGE → ADMIN ===== */
@@ -102,13 +107,11 @@ bot.onText(/\/broadcast/, async (msg) => {
 
   if (msg.from.id !== ADMIN_ID) return;
 
-  bot.sendMessage(msg.chat.id, "Reply or forward message to broadcast");
+  bot.sendMessage(msg.chat.id, "Reply message to broadcast");
 
   bot.once("message", async (replyMsg) => {
 
     if (replyMsg.from.id !== ADMIN_ID) return;
-
-    const users = await getUsers();
 
     for (let id of users) {
       try {
@@ -127,16 +130,16 @@ bot.onText(/\/broadcast/, async (msg) => {
 
 /* ===== USER COUNT ===== */
 
-bot.onText(/\/usercount/, async (msg) => {
+bot.onText(/\/usercount/, (msg) => {
 
   if (msg.from.id !== ADMIN_ID) return;
 
-  const users = await getUsers();
-
-  bot.sendMessage(msg.chat.id, `👥 Total Users: ${users.length}`);
+  bot.sendMessage(msg.chat.id,
+    `👥 Total Users: ${users.size}`
+  );
 });
 
-/* ===== CHAT / GROUP ID CHECK ===== */
+/* ===== CHAT ID CHECK ===== */
 
 bot.onText(/\/id/, (msg) => {
   bot.sendMessage(msg.chat.id, `🆔 Chat ID: ${msg.chat.id}`);
