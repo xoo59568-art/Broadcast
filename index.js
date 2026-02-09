@@ -2,7 +2,7 @@ require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
 
-/* ===== EXPRESS SERVER (Render + Uptime) ===== */
+/* ===== EXPRESS SERVER ===== */
 
 const app = express();
 
@@ -10,11 +10,9 @@ app.get("/", (req, res) => {
   res.send("Rabbit XMD Bot Running ✅");
 });
 
-app.listen(3000, () => {
-  console.log("Web Server Running");
-});
+app.listen(3000);
 
-/* ===== TELEGRAM BOT SETUP ===== */
+/* ===== BOT SETUP ===== */
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, {
   polling: true
@@ -23,40 +21,43 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, {
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 const DB_GROUP = Number(process.env.DB_GROUP);
 
-/* ===== USER SAVE TO GROUP ===== */
+/* ===== SAVE USER (GROUP DATABASE) ===== */
 
-async function saveUser(msg) {
-
-  const user = msg.from;
-
-  const text = `
-👤 New User
-
-🆔 ID: ${user.id}
-📛 Name: ${user.first_name || ""} ${user.last_name || ""}
-🔗 Username: ${user.username ? "@" + user.username : "No Username"}
-`;
-
+async function saveUser(user) {
   try {
-    await bot.sendMessage(DB_GROUP, text);
-  } catch (err) {
-    console.log("Save Error:", err.message);
-  }
+    await bot.sendMessage(DB_GROUP, `ID: ${user.id}`);
+  } catch {}
 }
 
-/* ===== START COMMAND ===== */
+/* ===== GET USERS FROM GROUP ===== */
+
+async function getUsers() {
+
+  const updates = await bot.getUpdates();
+  let users = [];
+
+  updates.forEach(u => {
+    if (u.message && u.message.chat.id === DB_GROUP) {
+
+      const match = u.message.text?.match(/ID:\s*(\d+)/);
+      if (match) users.push(Number(match[1]));
+
+    }
+  });
+
+  return [...new Set(users)];
+}
+
+/* ===== START MESSAGE ===== */
 
 bot.onText(/\/start/, async (msg) => {
 
-  if (msg.from.id !== ADMIN_ID) {
-    await saveUser(msg);
-  }
+  await saveUser(msg.from);
 
   bot.sendMessage(msg.chat.id, `
 🐰 Welcome to Rabbit XMD Support Bot
 
-Send any message here.
-Admin will reply soon.
+Send any message to contact admin.
 `);
 });
 
@@ -64,72 +65,62 @@ Admin will reply soon.
 
 bot.on("message", async (msg) => {
 
-  const userId = msg.from.id;
+  if (msg.from.id === ADMIN_ID) return;
 
-  // Admin message ignore
-  if (userId === ADMIN_ID) return;
+  await saveUser(msg.from);
 
-  // Save user
-  await saveUser(msg);
+  bot.forwardMessage(
+    ADMIN_ID,
+    msg.chat.id,
+    msg.message_id
+  );
+});
 
-  // Forward to admin
+/* ===== ADMIN REPLY → USER (ALL MEDIA) ===== */
+
+bot.on("message", async (msg) => {
+
+  if (msg.from.id !== ADMIN_ID) return;
+
+  if (!msg.reply_to_message) return;
+
+  const userId = msg.reply_to_message.forward_from?.id;
+  if (!userId) return;
+
   try {
-    await bot.forwardMessage(
-      ADMIN_ID,
+    await bot.copyMessage(
+      userId,
       msg.chat.id,
       msg.message_id
     );
-  } catch (err) {
-    console.log("Forward Error:", err.message);
-  }
+  } catch {}
 });
 
-/* ===== BROADCAST COMMAND ===== */
+/* ===== BROADCAST SYSTEM ===== */
 
 bot.onText(/\/broadcast/, async (msg) => {
 
   if (msg.from.id !== ADMIN_ID) return;
 
-  bot.sendMessage(msg.chat.id, "Reply any message to broadcast");
+  bot.sendMessage(msg.chat.id, "Reply or forward message to broadcast");
 
   bot.once("message", async (replyMsg) => {
 
     if (replyMsg.from.id !== ADMIN_ID) return;
 
-    try {
+    const users = await getUsers();
 
-      const messages = await bot.getChat(DB_GROUP);
-      const history = await bot.getUpdates();
-
-      let users = [];
-
-      history.forEach(u => {
-        if (u.message && u.message.chat.id === DB_GROUP) {
-
-          const match = u.message.text?.match(/ID:\s*(\d+)/);
-          if (match) users.push(Number(match[1]));
-
-        }
-      });
-
-      users = [...new Set(users)];
-
-      for (let id of users) {
-        try {
-          await bot.copyMessage(
-            id,
-            replyMsg.chat.id,
-            replyMsg.message_id
-          );
-        } catch {}
-      }
-
-      bot.sendMessage(msg.chat.id, "✅ Broadcast Completed");
-
-    } catch (err) {
-      console.log(err);
+    for (let id of users) {
+      try {
+        await bot.copyMessage(
+          id,
+          replyMsg.chat.id,
+          replyMsg.message_id
+        );
+      } catch {}
     }
 
+    bot.sendMessage(msg.chat.id, "✅ Broadcast Completed");
   });
 
 });
@@ -140,25 +131,18 @@ bot.onText(/\/usercount/, async (msg) => {
 
   if (msg.from.id !== ADMIN_ID) return;
 
-  const history = await bot.getUpdates();
-  let users = [];
-
-  history.forEach(u => {
-    if (u.message && u.message.chat.id === DB_GROUP) {
-
-      const match = u.message.text?.match(/ID:\s*(\d+)/);
-      if (match) users.push(Number(match[1]));
-
-    }
-  });
-
-  users = [...new Set(users)];
+  const users = await getUsers();
 
   bot.sendMessage(msg.chat.id, `👥 Total Users: ${users.length}`);
 });
 
-/* ===== CHAT ID CHECK ===== */
+/* ===== CHAT / GROUP ID CHECK ===== */
 
 bot.onText(/\/id/, (msg) => {
-  bot.sendMessage(msg.chat.id, `Chat ID: ${msg.chat.id}`);
+  bot.sendMessage(msg.chat.id, `🆔 Chat ID: ${msg.chat.id}`);
 });
+
+/* ===== ERROR PROTECTION ===== */
+
+process.on("uncaughtException", console.error);
+process.on("unhandledRejection", console.error);
