@@ -2,13 +2,17 @@ require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
 
+/* ===== EXPRESS SERVER ===== */
+
 const app = express();
 app.get("/", (req, res) => res.send("Rabbit XMD Bot Running"));
 app.listen(3000);
 
 /* ===== BOT SETUP ===== */
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(process.env.BOT_TOKEN, {
+  polling: true
+});
 
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 const DB_GROUP = Number(process.env.DB_GROUP);
@@ -20,9 +24,9 @@ let users = new Set();
 /* ===== LOAD USERS FROM GROUP ===== */
 
 async function loadUsers() {
-
   try {
-    const updates = await bot.getUpdates();
+
+    const updates = await bot.getUpdates({ offset: -1000 });
 
     updates.forEach(u => {
       if (u.message && u.message.chat.id === DB_GROUP) {
@@ -33,7 +37,7 @@ async function loadUsers() {
       }
     });
 
-    console.log("Loaded Users:", users.size);
+    console.log("Users Loaded:", users.size);
 
   } catch (err) {
     console.log("Load Error:", err.message);
@@ -42,7 +46,7 @@ async function loadUsers() {
 
 loadUsers();
 
-/* ===== SAVE USER ===== */
+/* ===== SAVE USER TO GROUP ===== */
 
 async function saveUser(user) {
 
@@ -139,7 +143,7 @@ bot.onText(/\/usercount/, (msg) => {
   );
 });
 
-/* ===== CHAT ID CHECK ===== */
+/* ===== GROUP / CHAT ID CHECK ===== */
 
 bot.onText(/\/id/, (msg) => {
   bot.sendMessage(msg.chat.id, `🆔 Chat ID: ${msg.chat.id}`);
